@@ -1,0 +1,225 @@
+/*//////////////////////////  TESLAPOLIS  //////////////////////////
+
+                   ET 28 "República francesa" DE 10
+
+  ASIGNATURA:PDE(programacion de aparatos electronicos)
+            Taller
+            Laboratorio
+
+  COMISIÓN:5to 5ta
+
+  ALUMNOS:Maia Montero 
+         Marcos Echeverria
+
+
+  POYECTO:DATALOGGER
+
+  PROFESORES:Marcos Benitez 
+            Damian Perez Martinez
+             Cristian Sanchez 
+             Sergio Alverino 
+             Victor Defina
+             Pablo Foltyn
+*/
+#include <Adafruit_Sensor.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <DHT.h>
+#include <DHT_U.h>
+#include <Preferences.h>
+
+// Definición de pines
+#define BUTTON_UP_PIN 5
+#define BTN_SETTINGS 23
+#define BUTTON_DOWN_PIN 18
+#define BTN_TEMP_AUTO 19 
+#define BUZZER 14
+#define GPIO_2 2
+#define LED_ALIMENTACION 27
+#define DHT_PIN 13
+#define DHT_TYPE DHT22
+#define DELAY 3000
+
+// Variables
+bool ledState = false;
+long tiempoLed = 0;
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+RTC_DS1307 rtc;
+DHT_Unified dht(DHT_PIN, DHT_TYPE);
+
+// Declaraciones globales
+unsigned long tiempoPrevio = 0;
+const unsigned long intervaloLectura = 500;
+bool tomarTemperatura = false;
+bool ultimoEstadoBoton = HIGH;
+
+// Declaración de funciones
+void setup();
+void loop();
+void ajustes();
+void mostrarTiempoActual();
+void leerSensor();
+
+void printDigits(int digits) {
+  if (digits < 10) {
+    lcd.print('0');
+  }
+  lcd.print(digits);
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  lcd.init();
+  lcd.backlight();
+
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    Serial.flush();
+  }
+
+  dht.begin();
+  
+  pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
+  pinMode(BTN_SETTINGS, INPUT_PULLUP);
+  pinMode(BTN_TEMP_AUTO, INPUT_PULLUP);
+  pinMode(LED_ALIMENTACION, OUTPUT);
+  pinMode(GPIO_2, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
+
+  lcd.setCursor(0, 0);
+  lcd.print("ET 28");
+  lcd.setCursor(0, 1);
+  lcd.print("Rep. Francesa");
+  delay(2000);
+  lcd.clear();
+
+  tiempoPrevio = millis(); // Inicializa el tiempo previo al inicio
+}
+
+void loop() {
+  int leerBTNSettings = digitalRead(BTN_SETTINGS);
+  bool actualEstadoBoton = digitalRead(BTN_TEMP_AUTO);
+  digitalWrite(LED_ALIMENTACION, HIGH);
+  mostrarTiempoActual();
+  leerSensor();
+
+  if (leerBTNSettings == LOW) {
+    ajustes();
+  }
+
+  if (actualEstadoBoton != ultimoEstadoBoton) {
+    if (actualEstadoBoton == LOW) {
+      tomarTemperatura = true;
+    }
+  }
+
+  if (tomarTemperatura || (millis() - tiempoPrevio >= intervaloLectura)) {
+    tiempoPrevio = millis();
+    if (tomarTemperatura) {
+      mostrarTiempoActual();
+      leerSensor();
+      tomarTemperatura = false;
+    }
+  }
+
+  if (millis() - tiempoLed > 250) {
+    tiempoLed = millis();
+    digitalWrite(GPIO_2, ledState);
+    ledState = !ledState;
+  }
+
+  ultimoEstadoBoton = actualEstadoBoton;
+}
+
+void ajustes() {
+  DateTime now = rtc.now();
+  int i = 0;
+
+  if (i == 1) {
+    // Modifica día y mes
+    if (digitalRead(BUTTON_UP_PIN) == LOW) {
+      delay(150); // Corrige el rebote del pulsador
+      if (digitalRead(BUTTON_DOWN_PIN) == LOW) {
+        now = now + TimeSpan(24 * 60 * 60);
+        rtc.adjust(now);
+      }
+    }
+  }
+
+  lcd.setCursor(11, 0);
+  printDigits(now.day());
+  lcd.print("/");
+  printDigits(now.month());
+  delay(100);
+  printDigits(now.hour());
+  lcd.print(":");
+  printDigits(now.minute());
+  delay(100);
+}
+
+void mostrarTiempoActual() {
+  DateTime now = rtc.now();
+  lcd.setCursor(11, 0);
+  lcd.print(now.month(), DEC);
+  lcd.print('/');
+  lcd.print(now.day(), DEC);
+  lcd.setCursor(11, 1);
+  lcd.print(now.hour(), DEC);
+  lcd.print(':');
+  lcd.print(now.minute(), DEC);
+  delay(1000);
+}
+
+void leerSensor() {
+  sensors_event_t event;
+  dht.temperature().getEvent(&event);
+
+  if (isnan(event.temperature)) {
+    lcd.setCursor(0, 0);
+    lcd.println(F("Error reading temperature!"));
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print(F("Tem:"));
+    lcd.print(event.temperature);
+
+    // Agregar el buzzer si la temperatura alcanza los 25 grados
+    if (event.temperature >= 25.0) {
+      digitalWrite(BUZZER, HIGH); // Enciende el buzzer
+    } else {
+      digitalWrite(BUZZER, LOW); // Apaga el buzzer
+    }
+    // Agregar el buzzer si la temperatura alcanza los 17 grados
+    if (event.temperature <= 17.0) {
+      digitalWrite(BUZZER, HIGH); // Enciende el buzzer
+    } else {
+      digitalWrite(BUZZER, LOW); // Apaga el buzzer
+    }
+    // Agregar el buzzer si la humedad es mayor o igual al 60%
+    if (event.relative_humidity >= 60.0) {
+      digitalWrite(BUZZER, HIGH); // Enciende el buzzer
+    } else {
+      digitalWrite(BUZZER, LOW); // Apaga el buzzer
+    }
+    // Agregar el buzzer si la humedad es menor o igual al 45%
+    if (event.relative_humidity <= 45.0) {
+      digitalWrite(BUZZER, HIGH); // Enciende el buzzer
+    } else {
+      digitalWrite(BUZZER, LOW); // Apaga el buzzer
+    }
+  }
+
+  dht.humidity().getEvent(&event);
+
+  if (isnan(event.relative_humidity)) {
+    lcd.setCursor(0, 1);
+    lcd.println(F("Error reading humidity!"));
+  } else {
+    lcd.setCursor(0, 1);
+    lcd.print(F("Hum:"));
+    lcd.print(event.relative_humidity);
+  }
+}
